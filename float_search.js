@@ -5,61 +5,79 @@ function loadBank() {
     try { return JSON.parse(files.read(BANK_PATH)); } catch (e) { return []; }
 }
 
+function safeStr(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+}
+
 function search(keyword) {
     var bank = loadBank();
     if (!keyword || keyword.length < 1) return [];
     var results = [];
     var kw = String(keyword).toLowerCase();
     for (var i = 0; i < bank.length; i++) {
-        var item = bank[i];
-        var q = String(item.q || "").toLowerCase();
-        if (q.indexOf(kw) >= 0) results.push(item);
+        var q = safeStr(bank[i].q).toLowerCase();
+        if (q.indexOf(kw) >= 0) results.push(bank[i]);
     }
     results.sort(function (a, b) {
-        return String(a.q || "").length - String(b.q || "").length;
+        return safeStr(a.q).length - safeStr(b.q).length;
     });
     return results.slice(0, 10);
 }
 
 var isExpanded = false;
 var searchWin = null;
+var touchDown = false;
+var dragged = false;
+var ox = 0, oy = 0, wx = 0, wy = 0;
 
 var w = floaty.rawWindow(
     <frame>
         <card id="btn" w="46" h="46" cardCornerRadius="23" cardBackgroundColor="#333333" cardElevation="6">
-            <text id="btnText" text="搜" textColor="#FFFFFF" textSize="16sp" gravity="center" />
+            <text text="搜" textColor="#FFFFFF" textSize="16sp" gravity="center" />
         </card>
     </frame>
 );
 
-w.btn.click(function () {
-    if (isExpanded) {
-        collapse();
-    } else {
-        expand();
+// 只用触摸监听，判断拖拽还是点击
+w.btn.setOnTouchListener(function (view, event) {
+    var action = event.getAction();
+    if (action === 0) {
+        // DOWN
+        ox = event.getRawX();
+        oy = event.getRawY();
+        wx = w.getX();
+        wy = w.getY();
+        dragged = false;
+        return true;
     }
-});
-
-w.btn.setOnTouchListener(new android.view.View.OnTouchListener({
-    onTouch: function (view, event) {
-        if (event.getAction() === 0) {
-            view.ox = event.getRawX();
-            view.oy = event.getRawY();
-            view.wx = w.getX();
-            view.wy = w.getY();
-            view.dragged = false;
-            return true;
+    if (action === 2) {
+        // MOVE
+        var dx = event.getRawX() - ox;
+        var dy = event.getRawY() - oy;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+            dragged = true;
         }
-        if (event.getAction() === 2) {
-            var dx = event.getRawX() - view.ox;
-            var dy = event.getRawY() - view.oy;
-            if (Math.abs(dx) > 10 || Math.abs(dy) > 10) view.dragged = true;
-            if (view.dragged) w.setPosition(view.wx + dx, view.wy + dy);
-            return true;
+        if (dragged) {
+            w.setPosition(wx + dx, wy + dy);
         }
         return true;
     }
-}));
+    if (action === 1) {
+        // UP - 没拖拽就当点击
+        if (!dragged) {
+            if (isExpanded) {
+                collapse();
+            } else {
+                expand();
+            }
+        }
+        return true;
+    }
+    return true;
+});
 
 function expand() {
     if (searchWin) return;
@@ -122,16 +140,16 @@ function doSearch(keyword) {
     function dp(v) { return Math.floor(v * d); }
 
     for (var i = 0; i < results.length; i++) {
-        var q = String(results[i].q || "");
-        var a = String(results[i].a || "");
+        var q = safeStr(results[i].q);
+        var a = safeStr(results[i].a);
 
         var outer = new android.widget.LinearLayout(ctx);
         outer.setOrientation(1);
         outer.setPadding(dp(10), dp(10), dp(10), dp(10));
         var bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(dp(6));
-        bg.setColor(-986896); // #F0F0F0
-        bg.setStroke(1, -12303292); // #BBBBBB
+        bg.setColor(-986896);
+        bg.setStroke(1, -12303292);
         outer.setBackground(bg);
 
         var lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
@@ -146,7 +164,7 @@ function doSearch(keyword) {
 
         var aTv = new android.widget.TextView(ctx);
         aTv.setText("答案: " + a);
-        aTv.setTextColor(-65536); // #FF0000
+        aTv.setTextColor(-65536);
         aTv.setTextSize(14);
         aTv.setTypeface(null, 1);
         aTv.setPadding(0, dp(6), 0, 0);
