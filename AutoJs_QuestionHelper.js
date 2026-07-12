@@ -1,8 +1,4 @@
 "ui";
-// ========================================
-// 答题助手 - Auto.js 悬浮窗搜索脚本
-// 题库文件：/sdcard/答题助手题库.json
-// ========================================
 
 var BANK_PATH = "/sdcard/答题助手题库.json";
 
@@ -44,7 +40,6 @@ function addQuestion(q, a) {
     saveBank(bank);
 }
 
-// ===== 主界面 =====
 ui.layout(
     <vertical padding="16" bg="#F5F5F5">
         <text text="答题助手" textSize="22sp" textStyle="bold" textColor="#1565C0" gravity="center" marginTop="30" />
@@ -67,16 +62,13 @@ ui.layout(
     </vertical>
 );
 
-// 刷新计数
 ui.countText.setText(loadBank().length + " 道");
 
-// 开启悬浮窗
 ui.startFloat.on("click", function () {
     engines.execScriptFile(files.path("./float_search.js"));
     toast("悬浮窗已开启");
 });
 
-// 手动录入
 ui.addManual.on("click", function () {
     var q = dialogs.rawInput("输入题目内容");
     if (!q) return;
@@ -87,7 +79,6 @@ ui.addManual.on("click", function () {
     toast("已保存");
 });
 
-// 粘贴文本批量导入
 ui.importText.on("click", function () {
     var txt = dialogs.rawInput("粘贴题目+答案文本\n格式: 题一行 答案一行");
     if (!txt) return;
@@ -103,10 +94,6 @@ ui.importText.on("click", function () {
                 addQuestion(line, ans);
                 added++;
                 i++;
-            } else if (line.length > 10) {
-                addQuestion(line, next);
-                added++;
-                i++;
             }
         } else if (line.length > 5 && !/^[A-Da-d]$/.test(line)) {
             addQuestion(line, "待确认");
@@ -117,41 +104,40 @@ ui.importText.on("click", function () {
     toast("导入了 " + added + " 道题");
 });
 
-// 查看全部 - 修复：使用alert避免dialogs.build的兼容问题
 ui.viewAll.on("click", function () {
     var bank = loadBank();
     if (bank.length === 0) {
         toast("题库为空");
         return;
     }
-    var count = bank.length;
-    // 分页显示，每页20条
-    showPage(bank, 0, count);
+    showPage(bank, 0);
 });
 
-function showPage(bank, start, total) {
-    var pageSize = 15;
+function showPage(bank, start) {
+    var pageSize = 12;
+    var total = bank.length;
     var end = Math.min(start + pageSize, total);
-    var text = "题库 (" + total + " 道)  第 " + (Math.floor(start / pageSize) + 1) + " 页\n\n";
+    var pageNum = Math.floor(start / pageSize) + 1;
+    var totalPages = Math.ceil(total / pageSize);
+
+    var text = "共 " + total + " 道题  第 " + pageNum + "/" + totalPages + " 页\n\n";
+
     for (var i = start; i < end; i++) {
-        var item = bank[i];
-        var q = String(item.q || "");
-        var a = String(item.a || "");
-        if (q.length > 45) q = q.substring(0, 45) + "...";
-        text += (i + 1) + ". " + q + "\n   → " + a + "\n\n";
+        var q = String(bank[i].q || "");
+        var a = String(bank[i].a || "");
+        if (q.length > 40) {
+            q = q.substring(0, 40) + "...";
+        }
+        text = text + (i + 1) + ". " + q + "\n   → " + a + "\n\n";
     }
+
     var hasMore = end < total;
-    var title = "题库 " + (start + 1) + "-" + end + " / " + total;
     if (hasMore) {
-        dialogs.build({
-            title: title,
-            content: text,
-            positive: "下一页",
-            negative: "关闭"
-        }).on("positive", function () {
-            showPage(bank, end, total);
-        }).show();
+        var result = dialogs.confirm("题库", text);
+        if (result) {
+            showPage(bank, end);
+        }
     } else {
-        alert(title, text);
+        alert("题库", text);
     }
 }
