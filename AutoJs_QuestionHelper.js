@@ -16,11 +16,22 @@ function saveBank(bank) {
     files.write(BANK_PATH, JSON.stringify(bank, null, 2));
 }
 
+// 安全取字符串：对象则 JSON 化，其他强转
+function safeStr(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+}
+
 function addQuestion(q, a) {
     var bank = loadBank();
     bank.push({ q: String(q), a: String(a), time: new Date().toISOString() });
     saveBank(bank);
 }
+
+// 悬浮窗是否已启动
+var floatStarted = false;
 
 ui.layout(
     <vertical padding="16" bg="#F5F5F5">
@@ -47,6 +58,11 @@ ui.layout(
 ui.countText.setText(loadBank().length + " 道");
 
 ui.startFloat.on("click", function () {
+    if (floatStarted) {
+        toast("悬浮窗已在运行");
+        return;
+    }
+    floatStarted = true;
     engines.execScriptFile(files.path("./float_search.js"));
     toast("悬浮窗已开启");
 });
@@ -68,7 +84,7 @@ ui.importText.on("click", function () {
     var added = 0;
     for (var i = 0; i < lines.length; i++) {
         var line = String(lines[i]).trim();
-        if (line.length < 5) continue;
+        if (line.length < 3) continue;
         var nextIdx = i + 1;
         if (nextIdx < lines.length) {
             var next = String(lines[nextIdx]).trim();
@@ -96,8 +112,8 @@ ui.viewAll.on("click", function () {
     var text = "共 " + len + " 道题\n\n";
     var maxShow = Math.min(len, 50);
     for (var i = 0; i < maxShow; i++) {
-        var q = String(bank[i].q || "");
-        var a = String(bank[i].a || "");
+        var q = safeStr(bank[i].q);
+        var a = safeStr(bank[i].a);
         if (q.length > 35) q = q.substring(0, 35) + "...";
         text = text + (i + 1) + ". " + q + "\n";
         text = text + "   → " + a + "\n\n";
