@@ -1,181 +1,150 @@
-// 悬浮窗搜索脚本
+// 悬浮窗搜索
 var BANK_PATH = "/sdcard/答题助手题库.json";
 
 function loadBank() {
-    try { return JSON.parse(files.read(BANK_PATH)); } catch (e) { return []; }
+    try {
+        var arr = JSON.parse(files.read(BANK_PATH));
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
 }
 
-function safeStr(v) {
+function val2str(v) {
     if (v === null || v === undefined) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") return JSON.stringify(v);
-    return String(v);
+    if (typeof v === "string") return v.trim();
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    if (v.q && v.a) return val2str(v.q);
+    try { return JSON.stringify(v); } catch (e) { return "[?]"; }
 }
 
-function search(keyword) {
+function search(kw) {
     var bank = loadBank();
-    if (!keyword || keyword.length < 1) return [];
-    var results = [];
-    var kw = String(keyword).toLowerCase();
+    if (!kw || kw.length < 1) return [];
+    var k = kw.toLowerCase().trim();
+    if (k.length < 1) return [];
+    var r = [];
     for (var i = 0; i < bank.length; i++) {
-        var q = safeStr(bank[i].q).toLowerCase();
-        if (q.indexOf(kw) >= 0) results.push(bank[i]);
+        if (val2str(bank[i].q).toLowerCase().indexOf(k) >= 0) r.push(bank[i]);
     }
-    results.sort(function (a, b) {
-        return safeStr(a.q).length - safeStr(b.q).length;
-    });
-    return results.slice(0, 10);
+    r.sort(function (a, b) { return val2str(a.q).length - val2str(b.q).length; });
+    return r.slice(0, 8);
 }
 
-var isExpanded = false;
 var searchWin = null;
-var touchDown = false;
-var dragged = false;
-var ox = 0, oy = 0, wx = 0, wy = 0;
+var isOpen = false;
+var downX, downY, winX, winY, moved;
 
-var w = floaty.rawWindow(
+var btn = floaty.rawWindow(
     <frame>
-        <card id="btn" w="46" h="46" cardCornerRadius="23" cardBackgroundColor="#333333" cardElevation="6">
-            <text text="搜" textColor="#FFFFFF" textSize="16sp" gravity="center" />
+        <card id="mainCard" w="auto" h="auto" cardCornerRadius="20" cardBackgroundColor="#333333" cardElevation="8">
+            <text text="搜" textColor="#FFFFFF" textSize="15sp" gravity="center" padding="10 14" />
         </card>
     </frame>
 );
 
-// 只用触摸监听，判断拖拽还是点击
-w.btn.setOnTouchListener(function (view, event) {
-    var action = event.getAction();
-    if (action === 0) {
-        // DOWN
-        ox = event.getRawX();
-        oy = event.getRawY();
-        wx = w.getX();
-        wy = w.getY();
-        dragged = false;
+btn.mainCard.setOnTouchListener(function (v, e) {
+    if (e.getAction() === 0) {
+        downX = e.getRawX();
+        downY = e.getRawY();
+        winX = btn.getX();
+        winY = btn.getY();
+        moved = false;
         return true;
     }
-    if (action === 2) {
-        // MOVE
-        var dx = event.getRawX() - ox;
-        var dy = event.getRawY() - oy;
-        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-            dragged = true;
-        }
-        if (dragged) {
-            w.setPosition(wx + dx, wy + dy);
-        }
+    if (e.getAction() === 2) {
+        var dx = e.getRawX() - downX;
+        var dy = e.getRawY() - downY;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
+        if (moved) btn.setPosition(winX + dx, winY + dy);
         return true;
     }
-    if (action === 1) {
-        // UP - 没拖拽就当点击
-        if (!dragged) {
-            if (isExpanded) {
-                collapse();
-            } else {
-                expand();
-            }
-        }
+    if (e.getAction() === 1 && !moved) {
+        toggle();
         return true;
     }
     return true;
 });
 
-function expand() {
-    if (searchWin) return;
-    isExpanded = true;
+function toggle() {
+    if (isOpen) { doClose(); } else { doOpen(); }
+}
 
+function doOpen() {
+    if (searchWin) return;
+    isOpen = true;
     searchWin = floaty.rawWindow(
-        <card w="*" cardCornerRadius="10" cardBackgroundColor="#FFFFFF" cardElevation="8" padding="12">
+        <card w="*" cardCornerRadius="10" cardBackgroundColor="#FFFFFF" cardElevation="12" padding="12">
             <vertical>
                 <horizontal>
-                    <text text="题库搜索" textSize="16sp" textColor="#333333" layout_weight="1" />
-                    <text id="closeBtn" text="关闭" textSize="14sp" textColor="#333333" padding="6" />
+                    <text text="搜索题库" textSize="16sp" textColor="#333333" layout_weight="1" />
+                    <text id="closeBtn" text="关闭" textSize="14sp" textColor="#333333" padding="8 4" />
                 </horizontal>
-                <input id="searchInput" hint="输入关键词搜索..." textSize="15sp" h="40" marginTop="8" />
-                <text id="resultTip" text="" textSize="12sp" textColor="#999999" margin="4 0" />
+                <input id="searchInp" hint="输入关键词..." textSize="15sp" h="40" marginTop="6" />
+                <text id="hintText" text="" textSize="11sp" textColor="#999999" margin="2 0" />
                 <vertical id="resultList" />
             </vertical>
         </card>
     );
-
     var sw = Math.floor(device.width * 0.9);
     searchWin.setSize(sw, -2);
     searchWin.setPosition(Math.floor((device.width - sw) / 2), 80);
-    searchWin.closeBtn.click(collapse);
+    searchWin.closeBtn.click(doClose);
 }
 
-function collapse() {
-    isExpanded = false;
-    if (searchWin) {
-        try { searchWin.close(); } catch (e) { }
-        searchWin = null;
-    }
+function doClose() {
+    isOpen = false;
+    if (searchWin) { try { searchWin.close(); } catch (e) { } searchWin = null; }
 }
 
-var lastText = "";
-var timerId = setInterval(function () {
+var lastTxt = "";
+var tid = setInterval(function () {
     if (!searchWin) return;
     try {
-        var txt = String(searchWin.searchInput.getText());
-        if (txt !== lastText) {
-            lastText = txt;
-            doSearch(txt);
-        }
+        var t = String(searchWin.searchInp.getText()).trim();
+        if (t !== lastTxt) { lastTxt = t; render(t); }
     } catch (e) { }
-}, 400);
+}, 350);
 
-function doSearch(keyword) {
+function render(kw) {
     if (!searchWin) return;
-    var results = search(keyword);
-    var list = searchWin.resultList;
-    try { list.removeAllViews(); } catch (e) { }
+    try { searchWin.resultList.removeAllViews(); } catch (e) { }
+    if (!kw || kw.length < 1) { searchWin.hintText.setText(""); return; }
+    var rs = search(kw);
+    if (rs.length === 0) { searchWin.hintText.setText("无匹配"); return; }
+    searchWin.hintText.setText("找到 " + rs.length + " 条");
 
-    if (results.length === 0) {
-        searchWin.resultTip.setText(keyword.length > 0 ? "无匹配" : "");
-        return;
-    }
-
-    searchWin.resultTip.setText("找到 " + results.length + " 条");
-    var ctx = searchWin.getContext();
+    var ctx = searchWin.resultList.getContext();
     var d = ctx.getResources().getDisplayMetrics().density;
-    function dp(v) { return Math.floor(v * d); }
-
-    for (var i = 0; i < results.length; i++) {
-        var q = safeStr(results[i].q);
-        var a = safeStr(results[i].a);
-
-        var outer = new android.widget.LinearLayout(ctx);
-        outer.setOrientation(1);
-        outer.setPadding(dp(10), dp(10), dp(10), dp(10));
+    for (var i = 0; i < rs.length; i++) {
+        var q = val2str(rs[i].q);
+        var a = val2str(rs[i].a);
+        if (q.length > 55) q = q.substring(0, 55) + "...";
+        var c = new android.widget.LinearLayout(ctx);
+        c.setOrientation(1);
+        c.setPadding(dp(10, d), dp(10, d), dp(10, d), dp(10, d));
         var bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dp(6));
+        bg.setCornerRadius(dp(6, d));
         bg.setColor(-986896);
         bg.setStroke(1, -12303292);
-        outer.setBackground(bg);
-
-        var lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, dp(8));
-
-        var qTv = new android.widget.TextView(ctx);
-        qTv.setText(q);
-        qTv.setTextColor(-12303292);
-        qTv.setTextSize(13);
-        qTv.setMaxLines(3);
-        outer.addView(qTv);
-
-        var aTv = new android.widget.TextView(ctx);
-        aTv.setText("答案: " + a);
-        aTv.setTextColor(-65536);
-        aTv.setTextSize(14);
-        aTv.setTypeface(null, 1);
-        aTv.setPadding(0, dp(6), 0, 0);
-        outer.addView(aTv);
-
-        list.addView(outer, lp);
+        c.setBackground(bg);
+        var p = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        p.setMargins(0, 0, 0, dp(8, d));
+        var qt = new android.widget.TextView(ctx);
+        qt.setText(q);
+        qt.setTextColor(-12303292);
+        qt.setTextSize(13);
+        qt.setMaxLines(3);
+        c.addView(qt);
+        var at = new android.widget.TextView(ctx);
+        at.setText("答案: " + a);
+        at.setTextColor(-65536);
+        at.setTextSize(14);
+        at.setTypeface(null, 1);
+        at.setPadding(0, dp(6, d), 0, 0);
+        c.addView(at);
+        searchWin.resultList.addView(c, p);
     }
 }
 
-events.on("exit", function () {
-    clearInterval(timerId);
-    collapse();
-    w.close();
-});
+function dp(v, d) { return Math.floor(v * d); }
+
+events.on("exit", function () { clearInterval(tid); doClose(); btn.close(); });
