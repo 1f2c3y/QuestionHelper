@@ -4,9 +4,15 @@ var BANK_PATH = "/sdcard/答题助手题库.json";
 
 function loadBank() {
     try {
-        var txt = files.read(BANK_PATH);
-        var arr = JSON.parse(txt);
-        return Array.isArray(arr) ? arr : [];
+        var raw = files.read(BANK_PATH);
+        var arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        // 清洗数据：把非字符串的 q/a 转成可读字符串
+        for (var i = 0; i < arr.length; i++) {
+            arr[i].q = val2str(arr[i].q);
+            arr[i].a = val2str(arr[i].a);
+        }
+        return arr;
     } catch (e) {
         return [];
     }
@@ -16,22 +22,29 @@ function saveBank(bank) {
     files.write(BANK_PATH, JSON.stringify(bank, null, 2));
 }
 
-// 安全取字符串：对象则 JSON 化，其他强转
-function safeStr(v) {
+function val2str(v) {
     if (v === null || v === undefined) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") return JSON.stringify(v);
-    return String(v);
+    var t = typeof v;
+    if (t === "string") return v.trim();
+    if (t === "number" || t === "boolean") return String(v);
+    // 对象或数组
+    if (v.q !== undefined && v.a !== undefined) return val2str(v.q);
+    if (v.text !== undefined) return val2str(v.text);
+    if (v.question !== undefined) return val2str(v.question);
+    try { return JSON.stringify(v); } catch (e) { return "[无法解析]"; }
 }
 
 function addQuestion(q, a) {
+    q = val2str(q);
+    a = val2str(a);
+    if (!q || q.length < 2) return false;
     var bank = loadBank();
-    bank.push({ q: String(q), a: String(a), time: new Date().toISOString() });
+    bank.push({ q: q, a: a || "待确认", time: new Date().toISOString() });
     saveBank(bank);
+    return true;
 }
 
-// 悬浮窗是否已启动
-var floatStarted = false;
+var floatRunning = false;
 
 ui.layout(
     <vertical padding="16" bg="#F5F5F5">
@@ -47,7 +60,7 @@ ui.layout(
 
         <button id="startFloat" text="开启悬浮窗搜索" style="Widget.AppCompat.Button.Colored" marginTop="8" />
         <button id="addManual" text="手动录入题目" style="Widget.AppCompat.Button" marginTop="8" />
-        <button id="importText" text="粘贴文本导入题库" style="Widget.AppCompat.Button" marginTop="8" />
+        <button id="clearBank" text="清空题库" style="Widget.AppCompat.Button" marginTop="8" />
         <button id="viewAll" text="查看所有题库" style="Widget.AppCompat.Button" marginTop="8" />
 
         <text text="提示：在学习强企看到题目时，点悬浮窗输入关键词查找答案"
@@ -55,71 +68,74 @@ ui.layout(
     </vertical>
 );
 
-ui.countText.setText(loadBank().length + " 道");
+// 初始化计数
+try { ui.countText.setText(loadBank().length + " 道"); } catch (e) { }
 
+// 开启悬浮窗
 ui.startFloat.on("click", function () {
-    if (floatStarted) {
+    if (floatRunning) {
         toast("悬浮窗已在运行");
         return;
     }
-    floatStarted = true;
-    engines.execScriptFile(files.path("./float_search.js"));
-    toast("悬浮窗已开启");
-});
-
-ui.addManual.on("click", function () {
-    var q = dialogs.rawInput("输入题目内容");
-    if (!q) return;
-    var a = dialogs.rawInput("输入答案");
-    if (!a) return;
-    addQuestion(q, a);
-    ui.countText.setText(loadBank().length + " 道");
-    toast("已保存");
-});
-
-ui.importText.on("click", function () {
-    var txt = dialogs.rawInput("粘贴题目+答案文本");
-    if (!txt) return;
-    var lines = String(txt).split("\n");
-    var added = 0;
-    for (var i = 0; i < lines.length; i++) {
-        var line = String(lines[i]).trim();
-        if (line.length < 3) continue;
-        var nextIdx = i + 1;
-        if (nextIdx < lines.length) {
-            var next = String(lines[nextIdx]).trim();
-            if (next.length > 0 && next.length < 60 && /^[A-Da-d]$/.test(next)) {
-                addQuestion(line, next);
-                added++;
-                i++;
-                continue;
-            }
+    try {
+        var path = files.path("./float_search.js");
+        if (!files.exists(path)) {
+            toast("未找到 float_search.js，请放在同目录");
+            return;
         }
-        addQuestion(line, "待确认");
-        added++;
+        var eng = engines.execScriptFile(path);
+        floatRunning = true;
+        toast("悬浮窗已开启");
+    } catch (e) {
+        toast("启动失败: " + e);
     }
-    ui.countText.setText(loadBank().length + " 道");
-    toast("导入了 " + added + " 道题");
 });
 
+// 手动录入 - 空内容直接拒绝
+ui.addManual.on("click", function () {
+    var q = dialogs.rawInput("输入题目内容（不能为空）");
+    if (!q || String(q).trim().length < 2) {
+        if (q !== null && q !== undefined) toast("内容不能为空");
+        return;
+    }
+    var a = dialogs.rawInput("输入答案");
+    if (a === null || a === undefined) return;
+    if (String(a).trim().length < 1) a = "待确认";
+    var ok = addQuestion(q, a);
+    if (ok) {
+        ui.countText.setText(loadBank().length + " 道");
+        toast("已保存");
+    } else {
+        toast("保存失败");
+    }
+});
+
+// 清空题库
+ui.clearBank.on("click", function () {
+    dialogs.confirm("确认清空", "确定要清空所有题库吗？", function (ok) {
+        if (ok) {
+            saveBank([]);
+            ui.countText.setText("0 道");
+            toast("已清空");
+        }
+    });
+});
+
+// 查看所有
 ui.viewAll.on("click", function () {
     var bank = loadBank();
-    var len = bank.length;
-    if (len === 0) {
+    if (bank.length === 0) {
         toast("题库为空");
         return;
     }
-    var text = "共 " + len + " 道题\n\n";
-    var maxShow = Math.min(len, 50);
-    for (var i = 0; i < maxShow; i++) {
-        var q = safeStr(bank[i].q);
-        var a = safeStr(bank[i].a);
-        if (q.length > 35) q = q.substring(0, 35) + "...";
-        text = text + (i + 1) + ". " + q + "\n";
-        text = text + "   → " + a + "\n\n";
+    var msg = "共 " + bank.length + " 道题\n\n";
+    for (var i = 0; i < bank.length; i++) {
+        var q = val2str(bank[i].q);
+        var a = val2str(bank[i].a);
+        if (q.length > 40) q = q.substring(0, 40) + "...";
+        if (a.length > 20) a = a.substring(0, 20) + "...";
+        msg = msg + (i + 1) + ". " + q + "\n";
+        msg = msg + "   → " + a + "\n\n";
     }
-    if (len > 50) {
-        text = text + "... 还有 " + (len - 50) + " 道题未显示";
-    }
-    alert(text);
+    alert(msg);
 });
