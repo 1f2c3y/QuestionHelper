@@ -9,7 +9,8 @@ var BANK_PATH = "/sdcard/答题助手题库.json";
 function loadBank() {
     try {
         var txt = files.read(BANK_PATH);
-        return JSON.parse(txt);
+        var arr = JSON.parse(txt);
+        return Array.isArray(arr) ? arr : [];
     } catch (e) {
         return [];
     }
@@ -23,23 +24,23 @@ function search(keyword) {
     var bank = loadBank();
     if (!keyword || keyword.length < 1) return [];
     var results = [];
-    var kw = keyword.toLowerCase();
+    var kw = String(keyword).toLowerCase();
     for (var i = 0; i < bank.length; i++) {
         var item = bank[i];
-        var q = (item.q || "").toLowerCase();
+        var q = String(item.q || "").toLowerCase();
         if (q.indexOf(kw) >= 0) {
             results.push(item);
         }
     }
     results.sort(function (a, b) {
-        return (a.q || "").length - (b.q || "").length;
+        return String(a.q || "").length - String(b.q || "").length;
     });
     return results.slice(0, 15);
 }
 
 function addQuestion(q, a) {
     var bank = loadBank();
-    bank.push({ q: q, a: a, time: new Date().toISOString() });
+    bank.push({ q: String(q), a: String(a), time: new Date().toISOString() });
     saveBank(bank);
 }
 
@@ -77,32 +78,31 @@ ui.startFloat.on("click", function () {
 
 // 手动录入
 ui.addManual.on("click", function () {
-    var q = dialogs.rawInput("输入题目内容 (复制粘贴即可)");
+    var q = dialogs.rawInput("输入题目内容");
     if (!q) return;
-    var a = dialogs.rawInput("输入答案 (如 A / B / 正确)");
+    var a = dialogs.rawInput("输入答案 (如 A / B)");
     if (!a) return;
     addQuestion(q, a);
     ui.countText.setText(loadBank().length + " 道");
     toast("已保存");
 });
 
-// 粘贴文本批量导入 (支持从错题本复制的文本)
+// 粘贴文本批量导入
 ui.importText.on("click", function () {
-    var txt = dialogs.rawInput("粘贴题目+答案文本\n格式: 每道题占两行 (题一行,答案一行)");
+    var txt = dialogs.rawInput("粘贴题目+答案文本\n格式: 题一行 答案一行");
     if (!txt) return;
-    var lines = txt.split("\n");
+    var lines = String(txt).split("\n");
     var added = 0;
     for (var i = 0; i < lines.length - 1; i++) {
-        var line = lines[i].trim();
-        var next = lines[i + 1].trim();
+        var line = String(lines[i]).trim();
+        var next = String(lines[i + 1]).trim();
         if (line.length > 5 && next.length > 0 && next.length < 50) {
-            // 判断下一行是否为答案(短文本)
             var isAnswer = /^[A-Da-d]$/.test(next) || /^答案/.test(next) || /^正确/.test(next) || /^[✓✔√]/.test(next);
             if (isAnswer) {
                 var ans = next.replace(/^答案[：:]\s*/, "").replace(/^[✓✔√]\s*/, "");
                 addQuestion(line, ans);
                 added++;
-                i++; // 跳过答案行
+                i++;
             } else if (line.length > 10) {
                 addQuestion(line, next);
                 added++;
@@ -117,23 +117,41 @@ ui.importText.on("click", function () {
     toast("导入了 " + added + " 道题");
 });
 
-// 查看全部
+// 查看全部 - 修复：使用alert避免dialogs.build的兼容问题
 ui.viewAll.on("click", function () {
     var bank = loadBank();
     if (bank.length === 0) {
         toast("题库为空");
         return;
     }
-    var text = "";
-    for (var i = 0; i < bank.length; i++) {
-        var item = bank[i];
-        text += (i + 1) + ". " + (item.q || "").substring(0, 50);
-        if ((item.q || "").length > 50) text += "...";
-        text += "\n   答案: " + (item.a || "") + "\n\n";
-    }
-    dialogs.build({
-        title: "题库 (" + bank.length + " 道)",
-        content: text,
-        positive: "关闭"
-    }).show();
+    var count = bank.length;
+    // 分页显示，每页20条
+    showPage(bank, 0, count);
 });
+
+function showPage(bank, start, total) {
+    var pageSize = 15;
+    var end = Math.min(start + pageSize, total);
+    var text = "题库 (" + total + " 道)  第 " + (Math.floor(start / pageSize) + 1) + " 页\n\n";
+    for (var i = start; i < end; i++) {
+        var item = bank[i];
+        var q = String(item.q || "");
+        var a = String(item.a || "");
+        if (q.length > 45) q = q.substring(0, 45) + "...";
+        text += (i + 1) + ". " + q + "\n   → " + a + "\n\n";
+    }
+    var hasMore = end < total;
+    var title = "题库 " + (start + 1) + "-" + end + " / " + total;
+    if (hasMore) {
+        dialogs.build({
+            title: title,
+            content: text,
+            positive: "下一页",
+            negative: "关闭"
+        }).on("positive", function () {
+            showPage(bank, end, total);
+        }).show();
+    } else {
+        alert(title, text);
+    }
+}
