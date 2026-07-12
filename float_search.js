@@ -88,11 +88,27 @@ function doOpen() {
     searchWin.setSize(sw, -2);
     searchWin.setPosition(Math.floor((device.width - sw) / 2), 80);
     searchWin.closeBtn.click(doClose);
+
+    // 移除 FLAG_NOT_FOCUSABLE，允许弹出输入法
+    try {
+        var ww = searchWin.getWindow();
+        var lp = ww.getAttributes();
+        lp.flags = lp.flags & ~0x00000008; // 去掉 FLAG_NOT_FOCUSABLE
+        ww.setAttributes(lp);
+    } catch (e) { }
+
+    // 延迟请求焦点弹出键盘
+    setTimeout(function () {
+        try { searchWin.searchInp.requestFocus(); } catch (e) { }
+    }, 200);
 }
 
 function doClose() {
     isOpen = false;
-    if (searchWin) { try { searchWin.close(); } catch (e) { } searchWin = null; }
+    if (searchWin) {
+        try { searchWin.close(); } catch (e) { }
+        searchWin = null;
+    }
 }
 
 var lastTxt = "";
@@ -100,16 +116,25 @@ var tid = setInterval(function () {
     if (!searchWin) return;
     try {
         var t = String(searchWin.searchInp.getText()).trim();
-        if (t !== lastTxt) { lastTxt = t; render(t); }
+        if (t !== lastTxt) {
+            lastTxt = t;
+            render(t);
+        }
     } catch (e) { }
 }, 350);
 
 function render(kw) {
     if (!searchWin) return;
     try { searchWin.resultList.removeAllViews(); } catch (e) { }
-    if (!kw || kw.length < 1) { searchWin.hintText.setText(""); return; }
+    if (!kw || kw.length < 1) {
+        searchWin.hintText.setText("");
+        return;
+    }
     var rs = search(kw);
-    if (rs.length === 0) { searchWin.hintText.setText("无匹配"); return; }
+    if (rs.length === 0) {
+        searchWin.hintText.setText("无匹配");
+        return;
+    }
     searchWin.hintText.setText("找到 " + rs.length + " 条");
 
     var ctx = searchWin.resultList.getContext();
@@ -147,4 +172,8 @@ function render(kw) {
 
 function dp(v, d) { return Math.floor(v * d); }
 
-events.on("exit", function () { clearInterval(tid); doClose(); btn.close(); });
+events.on("exit", function () {
+    clearInterval(tid);
+    doClose();
+    btn.close();
+});
